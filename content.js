@@ -10,7 +10,7 @@
   }
 
   function findTargetContainer() {
-    return document.querySelector("#secondary") || document.querySelector("#related");
+    return document.querySelector("#secondary");
   }
 
   function createPanel() {
@@ -55,6 +55,75 @@
     parts.content.innerHTML = '<div class="yts-loading">Zusammenfassung wird erstellt …</div>';
   }
 
+  function escapeHtml(text) {
+    return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function renderInlineMarkdown(text) {
+    return text
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*(.+?)\*/g, "<em>$1</em>")
+      .replace(/_(.+?)_/g, "<em>$1</em>");
+  }
+
+  function renderMarkdownToHtml(markdown) {
+    const escaped = escapeHtml(markdown);
+    const lines = escaped.split("\n");
+    const htmlParts = [];
+    let listItems = null;
+    let paragraphLines = null;
+
+    function flushList() {
+      if (listItems) {
+        htmlParts.push(`<ul>${listItems.join("")}</ul>`);
+        listItems = null;
+      }
+    }
+
+    function flushParagraph() {
+      if (paragraphLines) {
+        htmlParts.push(`<p>${paragraphLines.map(renderInlineMarkdown).join("<br>")}</p>`);
+        paragraphLines = null;
+      }
+    }
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+
+      if (line === "") {
+        flushList();
+        flushParagraph();
+        continue;
+      }
+
+      const headingMatch = line.match(/^(#{1,3})\s+(.*)$/);
+      if (headingMatch) {
+        flushList();
+        flushParagraph();
+        const level = headingMatch[1].length;
+        htmlParts.push(`<h${level}>${renderInlineMarkdown(headingMatch[2])}</h${level}>`);
+        continue;
+      }
+
+      const listMatch = line.match(/^[-*]\s+(.*)$/);
+      if (listMatch) {
+        flushParagraph();
+        if (!listItems) listItems = [];
+        listItems.push(`<li>${renderInlineMarkdown(listMatch[1])}</li>`);
+        continue;
+      }
+
+      flushList();
+      if (!paragraphLines) paragraphLines = [];
+      paragraphLines.push(line);
+    }
+
+    flushList();
+    flushParagraph();
+
+    return htmlParts.join("");
+  }
+
   function setSummaryState(summaryText) {
     const parts = getPanelParts();
     if (!parts) return;
@@ -62,7 +131,7 @@
     parts.content.style.display = "block";
     const textEl = document.createElement("div");
     textEl.className = "yts-summary-text";
-    textEl.textContent = summaryText;
+    textEl.innerHTML = renderMarkdownToHtml(summaryText);
     parts.content.innerHTML = "";
     parts.content.appendChild(textEl);
   }
@@ -100,73 +169,86 @@
     parts.content.innerHTML = "";
   }
 
-  function extractPlayerResponse() {
-    if (window.ytInitialPlayerResponse) {
-      return window.ytInitialPlayerResponse;
+  function queryAllDeep(root, predicate) {
+    const found = [];
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+    let node = walker.currentNode;
+    while (node) {
+      if (predicate(node)) found.push(node);
+      if (node.shadowRoot) found.push(...queryAllDeep(node.shadowRoot, predicate));
+      node = walker.nextNode();
     }
-    const scripts = document.querySelectorAll("script");
-    for (const script of scripts) {
-      const text = script.textContent;
-      if (!text || !text.includes("ytInitialPlayerResponse")) {
-        continue;
-      }
-      const match = text.match(/var ytInitialPlayerResponse\s*=\s*(\{.*?\});/s);
-      if (match) {
-        try {
-          return JSON.parse(match[1]);
-        } catch (error) {
-          continue;
-        }
-      }
-    }
-    return null;
+    return found;
   }
 
-  function pickCaptionTrack(captionTracks) {
-    if (!captionTracks || captionTracks.length === 0) {
-      return null;
-    }
-    const german = captionTracks.find((track) => track.languageCode && track.languageCode.startsWith("de"));
-    if (german) return german;
-    const english = captionTracks.find((track) => track.languageCode && track.languageCode.startsWith("en"));
-    if (english) return english;
-    return captionTracks[0];
+  function waitForTranscriptSegments(timeoutMs) {
+    return new Promise((resolve) => {
+      const start = Date.now();
+      const poll = () => {
+        const segments = queryAllDeep(document.body, (n) => n.tagName === "TRANSCRIPT-SEGMENT-VIEW-MODEL" || n.tagName === "YTD-TRANSCRIPT-SEGMENT-RENDERER");
+        if (segments.length > 0) {
+          resolve(segments);
+          return;
+        }
+        if (Date.now() - start >= timeoutMs) {
+          resolve([]);
+          return;
+        }
+        setTimeout(poll, 200);
+      };
+      poll();
+    });
   }
 
   async function fetchTranscriptText() {
-    const playerResponse = extractPlayerResponse();
-    const captionTracks =
-      playerResponse &&
-      playerResponse.captions &&
-      playerResponse.captions.playerCaptionsTracklistRenderer &&
-      playerResponse.captions.playerCaptionsTracklistRenderer.captionTracks;
-
-    const track = pickCaptionTrack(captionTracks);
-    if (!track || !track.baseUrl) {
+    const transcriptButton = document.querySelector("ytd-video-description-transcript-section-renderer button");
+    if (!transcriptButton) {
       return null;
     }
 
-    const response = await fetch(track.baseUrl + "&fmt=json3");
-    if (!response.ok) {
-      return null;
-    }
-    const data = await response.json();
-    if (!data.events) {
-      return null;
-    }
+    transcriptButton.click();
+    try {
+      const segments = await waitForTranscriptSegments(10000);
+      if (segments.length === 0) {
+        return null;
+      }
 
-    const segments = [];
-    for (const event of data.events) {
-      if (!event.segs) continue;
-      for (const seg of event.segs) {
-        if (seg.utf8) {
-          segments.push(seg.utf8);
+      const texts = [];
+      for (const segment of segments) {
+        let textEl = null;
+        if (segment.tagName === "YTD-TRANSCRIPT-SEGMENT-RENDERER") {
+          textEl = segment.querySelector(".segment-text");
+        } else {
+          textEl = segment.querySelector("span");
+        }
+        if (textEl && textEl.textContent) {
+          texts.push(textEl.textContent.trim());
         }
       }
-    }
 
-    const text = segments.join("").replace(/\s+/g, " ").trim();
-    return text.length > 0 ? text : null;
+      const text = texts.join(" ").replace(/\s+/g, " ").trim();
+      return text.length > 0 ? text : null;
+    } finally {
+      const engagementPanel = Array.from(
+        document.querySelectorAll(
+          'ytd-engagement-panel-section-list-renderer[visibility="ENGAGEMENT_PANEL_VISIBILITY_EXPANDED"]'
+        )
+      ).find((el) => {
+        const targetId = el.getAttribute("target-id") || "";
+        return targetId.toLowerCase().includes("transcript");
+      });
+      const closeButton = engagementPanel
+        ? queryAllDeep(
+            engagementPanel,
+            (n) => n.tagName === "BUTTON" && (n.getAttribute("aria-label") === "Schließen" || n.getAttribute("aria-label") === "Transkript schließen")
+          )[0]
+        : null;
+      if (closeButton) {
+        closeButton.click();
+      } else {
+        transcriptButton.click();
+      }
+    }
   }
 
   function getVideoTitle() {
@@ -223,11 +305,17 @@
     if (!container) {
       return;
     }
-    if (document.getElementById(PANEL_ID)) {
-      return;
+    const existingPanel = document.getElementById(PANEL_ID);
+    if (existingPanel) {
+      if (existingPanel.parentElement === container) {
+        return;
+      }
+      existingPanel.remove();
     }
     const panel = createPanel();
-    container.insertBefore(panel, container.firstChild);
+    const relatedEl = document.getElementById("related");
+    const referenceNode = (relatedEl && relatedEl.parentElement === container) ? relatedEl : container.firstChild;
+    container.insertBefore(panel, referenceNode);
   }
 
   function removePanel() {
@@ -255,7 +343,9 @@
 
   const observerTarget = document.body;
   const observer = new MutationObserver(() => {
-    if (!document.getElementById(PANEL_ID)) {
+    const container = findTargetContainer();
+    const panel = document.getElementById(PANEL_ID);
+    if (!panel || (container && panel.parentElement !== container)) {
       injectPanel();
     }
   });

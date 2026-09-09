@@ -23,7 +23,9 @@ async function summarize(title, transcript) {
       },
       body: JSON.stringify({
         model,
-        messages: [{ role: "user", content: prompt }]
+        messages: [{ role: "user", content: prompt }],
+        reasoning: { effort: "low" },
+        max_tokens: 4096
       })
     });
 

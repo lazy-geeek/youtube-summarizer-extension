@@ -1,9 +1,9 @@
 .yts-container {
-  --yts-bg: var(--yt-spec-badge-chip-background, #f2f2f2);
-  --yts-text: var(--yt-spec-text-primary, #0f0f0f);
-  --yts-secondary-text: var(--yt-spec-text-secondary, #606060);
-  --yts-border: var(--yt-spec-10-percent-layer, #e5e5e5);
-  --yts-accent: var(--yt-spec-call-to-action, #065fd4);
+  --yts-bg: #f2f2f2;
+  --yts-text: #0f0f0f;
+  --yts-secondary-text: #606060;
+  --yts-border: #e5e5e5;
+  --yts-accent: #065fd4;
 
   background: var(--yts-bg);
   color: var(--yts-text);
@@ -42,15 +42,54 @@
 }
 
 .yts-summary-text {
-  white-space: pre-wrap;
   max-height: 480px;
   overflow-y: auto;
   color: var(--yts-text);
 }
 
+.yts-summary-text p {
+  margin: 0 0 10px;
+}
+
+.yts-summary-text h1,
+.yts-summary-text h2,
+.yts-summary-text h3 {
+  margin: 12px 0 6px;
+  color: var(--yts-text);
+}
+
+.yts-summary-text ul {
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+
+.yts-summary-text li {
+  margin-bottom: 4px;
+}
+
+.yts-summary-text > :first-child {
+  margin-top: 0;
+}
+
+.yts-summary-text > :last-child {
+  margin-bottom: 0;
+}
+
+html[dark] .yts-container {
+  --yts-bg: #272727;
+  --yts-text: #f1f1f1;
+  --yts-secondary-text: #aaaaaa;
+  --yts-border: #3f3f3f;
+  --yts-accent: #3ea6ff;
+}
+
 .yts-error {
   color: #cc0000;
   margin-bottom: 8px;
+}
+
+html[dark] .yts-error {
+  color: #f28b82;
 }
 
 .yts-options-link {
