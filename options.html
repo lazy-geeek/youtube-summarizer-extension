@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <title>YouTube-Zusammenfassung – Einstellungen</title>
+  <style>
+    body {
+      font-family: "Segoe UI", "Arial", sans-serif;
+      max-width: 480px;
+      margin: 24px auto;
+      color: #0f0f0f;
+    }
+    h1 {
+      font-size: 18px;
+    }
+    label {
+      display: block;
+      margin-top: 16px;
+      font-weight: 600;
+      font-size: 14px;
+    }
+    input {
+      width: 100%;
+      padding: 8px;
+      margin-top: 4px;
+      box-sizing: border-box;
+      font-size: 14px;
+    }
+    button {
+      margin-top: 20px;
+      padding: 10px 20px;
+      background: #065fd4;
+      color: #fff;
+      border: none;
+      border-radius: 18px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    #status {
+      margin-top: 12px;
+      font-size: 14px;
+      color: #0a8a0a;
+    }
+  </style>
+</head>
+<body>
+  <h1>YouTube-Zusammenfassung – Einstellungen</h1>
+
+  <label for="apiKey">OpenRouter API-Key</label>
+  <input type="password" id="apiKey" placeholder="sk-or-..." />
+
+  <label for="model">Modellname</label>
+  <input type="text" id="model" placeholder="anthropic/claude-sonnet-4.5" />
+
+  <button id="save">Speichern</button>
+  <div id="status"></div>
+
+  <script src="options.js"></script>
+</body>
+</html>
