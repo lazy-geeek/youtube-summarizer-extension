@@ -10,7 +10,11 @@
   }
 
   function findTargetContainer() {
-    return document.querySelector("#secondary");
+    return document.querySelector("ytd-watch-flexy #secondary");
+  }
+
+  function isWatchPage() {
+    return location.pathname === "/watch" && !!getVideoIdFromUrl();
   }
 
   function createPanel() {
@@ -301,6 +305,10 @@
   }
 
   function injectPanel() {
+    if (!isWatchPage()) {
+      removePanel();
+      return;
+    }
     const container = findTargetContainer();
     if (!container) {
       return;
