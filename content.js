@@ -3,6 +3,7 @@
   const BUTTON_ID = "yts-button";
 
   let currentVideoId = null;
+  const pendingVideoIds = new Set();
 
   function getVideoIdFromUrl() {
     const params = new URLSearchParams(window.location.search);
@@ -131,7 +132,8 @@
   function setSummaryState(summaryText) {
     const parts = getPanelParts();
     if (!parts) return;
-    parts.button.style.display = "none";
+    parts.button.style.display = "block";
+    parts.button.textContent = "Neu erstellen";
     parts.content.style.display = "block";
     const textEl = document.createElement("div");
     textEl.className = "yts-summary-text";
@@ -143,7 +145,8 @@
   function setErrorState(message, showOptionsLink) {
     const parts = getPanelParts();
     if (!parts) return;
-    parts.button.style.display = "none";
+    parts.button.style.display = "block";
+    parts.button.textContent = "Erneut versuchen";
     parts.content.style.display = "block";
     parts.content.innerHTML = "";
 
@@ -264,6 +267,9 @@
   }
 
   async function onSummarizeClick() {
+    const videoId = getVideoIdFromUrl();
+    const isStale = () => getVideoIdFromUrl() !== videoId;
+    pendingVideoIds.add(videoId);
     setLoadingState();
 
     let transcript;
@@ -273,7 +279,13 @@
       transcript = null;
     }
 
+    if (isStale()) {
+      pendingVideoIds.delete(videoId);
+      return;
+    }
+
     if (!transcript) {
+      pendingVideoIds.delete(videoId);
       setErrorState("Für dieses Video ist kein Transkript verfügbar.", false);
       return;
     }
@@ -281,9 +293,12 @@
     const title = getVideoTitle();
 
     chrome.runtime.sendMessage(
-      { type: "SUMMARIZE", title, transcript },
+      { type: "SUMMARIZE", videoId, title, transcript },
       (response) => {
-        if (chrome.runtime.lastError) {
+        const commError = chrome.runtime.lastError;
+        pendingVideoIds.delete(videoId);
+        if (isStale()) return;
+        if (commError) {
           setErrorState("Fehler bei der Kommunikation mit der Erweiterung.", false);
           return;
         }
@@ -324,6 +339,31 @@
     const relatedEl = document.getElementById("related");
     const referenceNode = (relatedEl && relatedEl.parentElement === container) ? relatedEl : container.firstChild;
     container.insertBefore(panel, referenceNode);
+    if (pendingVideoIds.has(getVideoIdFromUrl())) {
+      setLoadingState();
+    } else {
+      showCachedSummary(panel);
+    }
+  }
+
+  function showCachedSummary(panel) {
+    const videoId = getVideoIdFromUrl();
+    let request;
+    try {
+      request = chrome.storage.local.get("summaries");           // must match SUMMARIES_KEY in background.js
+    } catch (error) {
+      return;                                                      // extension context invalidated (orphaned script)
+    }
+    request.then((stored) => {
+      const entry = stored.summaries && stored.summaries[videoId];
+      if (!entry || typeof entry.summary !== "string") return;    // also guards inherited keys like "constructor"
+      if (document.getElementById(PANEL_ID) !== panel) return;   // panel replaced
+      if (getVideoIdFromUrl() !== videoId) return;                // navigated away
+      if (pendingVideoIds.has(videoId)) return;                     // request in flight
+      const content = panel.querySelector(".yts-content");
+      if (content.style.display !== "none") return;              // loading/result already shown
+      setSummaryState(entry.summary);
+    }).catch(() => {});                                           // keep default button state
   }
 
   function removePanel() {

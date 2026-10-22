@@ -46,9 +46,38 @@ async function summarize(title, transcript) {
   }
 }
 
+const SUMMARIES_KEY = "summaries";
+const MAX_SUMMARIES = 100;
+
+function pruneSummaries(summaries, max) {
+  const entries = Object.entries(summaries)
+    .sort((a, b) => b[1].createdAt - a[1].createdAt)
+    .slice(0, max);
+  return Object.fromEntries(entries);
+}
+
+let saveChain = Promise.resolve();
+
+function saveSummary(videoId, title, summary) {
+  const run = saveChain.then(async () => {
+    const stored = await chrome.storage.local.get(SUMMARIES_KEY);
+    const summaries = stored[SUMMARIES_KEY] || {};
+    summaries[videoId] = { summary, title, createdAt: Date.now() };
+    await chrome.storage.local.set({ [SUMMARIES_KEY]: pruneSummaries(summaries, MAX_SUMMARIES) });
+  });
+  saveChain = run.catch(() => {});
+  return run;
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "SUMMARIZE") {
-    summarize(message.title, message.transcript).then(sendResponse);
+    summarize(message.title, message.transcript).then(async (result) => {
+      if (result.summary && message.videoId) {
+        try { await saveSummary(message.videoId, message.title, result.summary); }
+        catch (error) { console.warn("Saving summary failed", error); }
+      }
+      sendResponse(result);
+    });
     return true;
   }
   if (message.type === "OPEN_OPTIONS") {
